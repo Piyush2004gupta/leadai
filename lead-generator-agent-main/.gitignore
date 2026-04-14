@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local Data / Sessions
+backend/wa_session/
+backend/uploads/
+backend/leads.json
+frontend/dist/
+frontend/build/
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs
+pip-log.txt
+npm-debug.log*
+
+# Workspace
+.gemini/
+.antigravity/
