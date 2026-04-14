@@ -46,10 +46,13 @@ async def scrape_maps(category: str, location: str, limit: int = 10) -> list:
         # ── Google Maps search direct URL ────────────────
         search_url = f"https://www.google.com/maps/search/{urllib.parse.quote(category)} in {urllib.parse.quote(location)}"
         try:
-            await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-            await asyncio.sleep(5)
-        except Exception:
-            pass
+            print(f"   🌐 Opening URL: {search_url}")
+            await page.goto(search_url, timeout=60000)
+            print("   ✅ Page loaded")
+            await page.wait_for_timeout(5000)
+            print("   🕷 Starting scraping...")
+        except Exception as e:
+            print(f"   ⚠️ Goto Error: {e}")
 
         # ── Scroll to load more ────────────────────────
         feed = await page.query_selector('div[role="feed"]')

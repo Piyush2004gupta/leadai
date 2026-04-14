@@ -134,7 +134,10 @@ async def _send(page, phone: str, message: str, attachment_path: str = None) -> 
         print(f" (Routing to {clean}...) ", end="", flush=True)
 
         url = f"https://web.whatsapp.com/send?phone={clean}"
-        await page.goto(url, wait_until="load", timeout=60000)
+        print(f"   🌐 Opening WhatsApp link for {clean}...")
+        await page.goto(url, timeout=60000)
+        print("   ✅ Page loaded")
+        await page.wait_for_timeout(5000)
         
         msg_box_selector = 'div[contenteditable="true"][data-tab="10"], div[contenteditable="true"]'
         try:
