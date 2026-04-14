@@ -56,6 +56,12 @@ async def scrape_maps(category: str, location: str, limit: int = 10) -> list:
             print(f"   ⚠️ Goto Error: {e}")
 
         # ── Scroll to load more ────────────────────────
+        try:
+            await page.wait_for_selector('div[role="feed"]', timeout=30000)
+            print("   ✅ Results loaded")
+        except:
+            print("   ⚠️ Results feed not found, attempting to proceed...")
+
         feed = await page.query_selector('div[role="feed"]')
         if feed:
             prev = 0
