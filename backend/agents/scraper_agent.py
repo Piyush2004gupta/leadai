@@ -4,7 +4,7 @@ Playwright se Google Maps kholo, saari businesses dhundho,
 data extract karo aur leads.json mein save karo.
 """
 
-import time, re, json, sys, io, urllib.parse
+import time, re, json, sys, io, urllib.parse, os
 from playwright.sync_api import sync_playwright
 from graph.state import AgentState
 
@@ -34,7 +34,7 @@ def scrape_maps(category: str, location: str, limit: int = 10) -> list:
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=False,
+            headless=os.getenv("HEADLESS", "true").lower() == "true",
             args=["--no-sandbox", "--disable-dev-shm-usage"]
         )
         page = browser.new_context(

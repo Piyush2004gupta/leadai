@@ -5,7 +5,7 @@ Har lead ko message bhejo — 10 second delay.
 Status leads.json mein update hoti hai.
 """
 
-import time, json, urllib.parse, sys, io, re
+import time, json, urllib.parse, sys, io, re, os
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 from graph.state import AgentState
 
@@ -37,7 +37,7 @@ def outreach_agent(state: AgentState) -> AgentState:
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
             user_data_dir=WA_SESSION,
-            headless=False,
+            headless=os.getenv("HEADLESS", "true").lower() == "true",
             args=[
                 "--no-sandbox", 
                 "--disable-blink-features=AutomationControlled",
@@ -130,7 +130,6 @@ def outreach_agent(state: AgentState) -> AgentState:
 
 
 def _send(page, phone: str, message: str, attachment_path: str = None) -> bool:
-    import os
     try:
         # Pura saaf number: sirf digits rakho
         clean = re.sub(r"\D", "", phone)
