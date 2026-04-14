@@ -212,7 +212,7 @@ async def run_outreach_pipeline(job_id: str):
         log("🌐 Opening WhatsApp Web... (QR Scan kar lena agar login nahi ho)", 20)
         
         state = {"leads_with_msg": pending}
-        result = await asyncio.to_thread(outreach_agent, state)
+        result = await outreach_agent(state)
         
         log(f"✅ Outreach complete! Sent: {result.get('sent_count', 0)}, Failed: {result.get('failed_count', 0)}", 100)
         JOBS[job_id]["status"] = "done"
@@ -262,7 +262,7 @@ async def run_pipeline(job_id: str, category: str, location: str, limit: int, ba
         from agents.writer_agent   import write_messages
         from agents.outreach_agent import outreach_agent
 
-        raw_leads = await asyncio.to_thread(scrape_maps, category, location, limit)
+        raw_leads = await scrape_maps(category, location, limit)
         log(f"✅ {len(raw_leads)} leads scraped", 30)
 
         # Scraped leads ko save karke attachment path add karo
