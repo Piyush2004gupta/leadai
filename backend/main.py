@@ -55,6 +55,11 @@ def root():
     return {"status": "LeadAgent API running"}
 
 
+@app.head("/")
+def head():
+    return {}
+
+
 @app.get("/health")
 def health():
     return {"ok": True}
