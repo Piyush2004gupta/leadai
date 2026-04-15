@@ -35,74 +35,85 @@ async def scrape_maps(category: str, location: str, limit: int = 10) -> list:
     async with async_playwright() as p:
         browser = await p.chromium.launch(
             headless=os.getenv("HEADLESS", "true").lower() == "true",
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
+            args=[
+                "--no-sandbox", 
+                "--disable-dev-shm-usage",
+                "--single-process",
+                "--disable-gpu",
+                "--no-zygote"
+            ]
         )
-        ctx = await browser.new_context(
-            viewport={"width": 1366, "height": 768},
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        )
-        page = await ctx.new_page()
-
-        # ── Google Maps search direct URL ────────────────
-        search_url = f"https://www.google.com/maps/search/{urllib.parse.quote(category)} in {urllib.parse.quote(location)}"
         try:
-            print("   🌐 Opening Google Maps")
-            await page.goto(search_url, timeout=60000)
-            print("   ✅ Page opened successfully")
-            print("   🚀 Starting scraping")
-            await page.wait_for_timeout(5000)
-            print("   ⏳ Waiting for results...")
-        except Exception as e:
-            print(f"   ⚠️ Goto Error: {e}")
+            ctx = await browser.new_context(
+                viewport={"width": 1366, "height": 768},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            )
+            page = await ctx.new_page()
 
-        # ── Scroll to load more ────────────────────────
-        try:
-            await page.wait_for_selector('div[role="feed"]', timeout=30000)
-            print("   ✅ Results loaded")
-        except:
-            print("   ⚠️ Results feed not found, attempting to proceed...")
+            # Extreme memory optimization: Block images, CSS, and Fonts
+            await page.route("**/*.{png,jpg,jpeg,svg,webp,gif,css,font,woff,woff2,ttf}", lambda route: route.abort())
 
-        feed = await page.query_selector('div[role="feed"]')
-        if feed:
-            prev = 0
-            for _ in range(8):
-                await page.evaluate("(el) => el.scrollBy(0, 1000)", feed)
-                await asyncio.sleep(1.8)
-                items = await page.query_selector_all('div[role="feed"] > div > div > a')
-                cur = len(items)
-                if cur == prev or cur >= 40: break
-                prev = cur
-
-        # ── Extract each listing ───────────────────────
-        listings = await page.query_selector_all('div[role="feed"] > div > div > a')
-        for i in range(len(listings)):
-            if len(leads) >= limit: break
-            
-            # Re-fetch listings to avoid detachment
-            current_listings = await page.query_selector_all('div[role="feed"] > div > div > a')
-            if i >= len(current_listings): break
-            item = current_listings[i]
-
+            # ── Google Maps search direct URL ────────────────
+            search_url = f"https://www.google.com/maps/search/{urllib.parse.quote(category)} in {urllib.parse.quote(location)}"
             try:
-                try: await item.scroll_into_view_if_needed(timeout=5000)
-                except: pass
-                
-                await item.click()
-                await asyncio.sleep(3.5)
-                lead = await _extract(page, i+1, category, location)
-                
-                if lead and lead.get("phone"):
-                    name_lower = lead.get("name", "").strip().lower()
-                    phone = lead["phone"]
-                    
-                    is_dup = any(l["phone"] == phone or l["name"].strip().lower() == name_lower for l in leads)
-                    
-                    if not is_dup:
-                        leads.append(lead)
-                        print(f"   ✅ [{len(leads):02d}] {lead['name'][:35]:<35} {lead['phone']}")
-            except: continue
+                print("   🌐 Opening Google Maps (Ultra-lite)")
+                await page.goto(search_url, timeout=60000)
+                print("   ✅ Page opened successfully")
+                print("   🚀 Starting scraping")
+                await page.wait_for_timeout(3000)
+                print("   ⏳ Waiting for results...")
+            except Exception as e:
+                print(f"   ⚠️ Goto Error: {e}")
 
-        await browser.close()
+            # ── Scroll to load more ────────────────────────
+            try:
+                await page.wait_for_selector('div[role="feed"]', timeout=30000)
+                print("   ✅ Results loaded")
+            except:
+                print("   ⚠️ Results feed not found, attempting to proceed...")
+
+            feed = await page.query_selector('div[role="feed"]')
+            if feed:
+                prev = 0
+                for _ in range(8):
+                    await page.evaluate("(el) => el.scrollBy(0, 1000)", feed)
+                    await asyncio.sleep(1.8)
+                    items = await page.query_selector_all('div[role="feed"] > div > div > a')
+                    cur = len(items)
+                    if cur == prev or cur >= 40: break
+                    prev = cur
+
+            # ── Extract each listing ───────────────────────
+            listings = await page.query_selector_all('div[role="feed"] > div > div > a')
+            for i in range(len(listings)):
+                if len(leads) >= limit: break
+                
+                # Re-fetch listings to avoid detachment
+                current_listings = await page.query_selector_all('div[role="feed"] > div > div > a')
+                if i >= len(current_listings): break
+                item = current_listings[i]
+
+                try:
+                    try: await item.scroll_into_view_if_needed(timeout=5000)
+                    except: pass
+                    
+                    await item.click()
+                    await asyncio.sleep(3.5)
+                    lead = await _extract(page, i+1, category, location)
+                    
+                    if lead and lead.get("phone"):
+                        name_lower = lead.get("name", "").strip().lower()
+                        phone = lead["phone"]
+                        
+                        is_dup = any(l["phone"] == phone or l["name"].strip().lower() == name_lower for l in leads)
+                        
+                        if not is_dup:
+                            leads.append(lead)
+                            print(f"   ✅ [{len(leads):02d}] {lead['name'][:35]:<35} {lead['phone']}")
+                except: continue
+
+        finally:
+            await browser.close()
 
     _save_json(leads)
     return leads

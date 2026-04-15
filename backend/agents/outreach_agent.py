@@ -35,84 +35,92 @@ async def outreach_agent(state: AgentState) -> AgentState:
     sent = failed = 0
 
     async with async_playwright() as p:
-        ctx = await p.chromium.launch_persistent_context(
-            user_data_dir=WA_SESSION,
-            headless=os.getenv("HEADLESS", "true").lower() == "true",
-            args=[
-                "--no-sandbox", 
-                "--disable-blink-features=AutomationControlled",
-                "--start-maximized"
-            ],
-            viewport={"width": 1280, "height": 800},
-        )
-        page = await ctx.new_page()
-
-        # ── WhatsApp Web open + login ──────────────────
-        print("   🌐 WhatsApp Web khul raha hai...")
         try:
-            await page.goto("https://web.whatsapp.com", wait_until="load", timeout=120000)
-        except Exception as e:
-            print(f"   ⚠️ Goto error: {e}")
+            ctx = await p.chromium.launch_persistent_context(
+                user_data_dir=WA_SESSION,
+                headless=os.getenv("HEADLESS", "true").lower() == "true",
+                args=[
+                    "--no-sandbox", 
+                    "--disable-blink-features=AutomationControlled",
+                    "--start-maximized",
+                    "--disable-dev-shm-usage",
+                    "--single-process",
+                    "--disable-gpu",
+                    "--no-zygote"
+                ],
+                viewport={"width": 1280, "height": 800},
+            )
+            page = await ctx.new_page()
 
-        # Wait for either QR or Chats to appear with a generous timeout
-        print("   ⌛ Waiting for page to initialize...")
-        try:
-            await page.wait_for_selector('canvas[aria-label="Scan me!"], [data-testid="chat-list"], #pane-side', timeout=60000)
-        except:
-            pass
+            # Memory optimization: Block images (keep CSS for WhatsApp UI)
+            await page.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda route: route.abort())
 
-        # QR check
-        qr_canvas = await page.query_selector('canvas[aria-label="Scan me!"]')
-        if qr_canvas:
-            print("\n" + "═"*42)
-            print("  📱  QR CODE SCAN KARO!")
-            print("  WhatsApp → Linked Devices → Link a Device")
-            print("═"*42 + "\n")
+            # ── WhatsApp Web open + login ──────────────────
+            print("   🌐 WhatsApp Web (Ultra-lite) khul raha hai...")
             try:
-                await page.wait_for_selector('[data-testid="chat-list"], #pane-side', timeout=120000)
-                print("  ✅ Logged in!\n")
-                await asyncio.sleep(5)
-            except PWTimeout:
-                print("  ❌ Login timeout. Please try again.")
-                await ctx.close()
-                state["sent_count"] = 0
-                state["failed_count"] = len(leads)
-                return state
-        else:
+                await page.goto("https://web.whatsapp.com", wait_until="load", timeout=120000)
+            except Exception as e:
+                print(f"   ⚠️ Goto error: {e}")
+
+            # Wait for either QR or Chats to appear with a generous timeout
+            print("   ⌛ Waiting for page to initialize...")
             try:
-                await page.wait_for_selector('[data-testid="chat-list"], #pane-side', timeout=30000)
-                print("  ✅ Logged in (Session found)\n")
+                await page.wait_for_selector('canvas[aria-label="Scan me!"], [data-testid="chat-list"], #pane-side', timeout=60000)
             except:
-                print("  ⚠️ Session detection slow, attempting to proceed...")
-                await asyncio.sleep(5)
+                pass
 
-        # ── Send loop ──────────────────────────────────
-        for i, lead in enumerate(leads):
-            phone   = lead.get("phone", "")
-            message = lead.get("message", "")
-            name    = lead.get("name", "")
-
-            print(f"  [{i+1:02d}/{len(leads)}] {name[:30]:<30} {phone}", end="  ", flush=True)
-
-            attachment = lead.get("attachment")
-            ok = await _send(page, phone, message, attachment)
-
-            if ok:
-                sent += 1
-                _update_status(phone, "sent")
-                print("✅")
+            # QR check
+            qr_canvas = await page.query_selector('canvas[aria-label="Scan me!"]')
+            if qr_canvas:
+                print("\n" + "═"*42)
+                print("  📱  QR CODE SCAN KARO!")
+                print("  WhatsApp → Linked Devices → Link a Device")
+                print("═"*42 + "\n")
+                try:
+                    await page.wait_for_selector('[data-testid="chat-list"], #pane-side', timeout=120000)
+                    print("  ✅ Logged in!\n")
+                    await asyncio.sleep(5)
+                except PWTimeout:
+                    print("  ❌ Login timeout. Please try again.")
+                    await ctx.close()
+                    state["sent_count"] = 0
+                    state["failed_count"] = len(leads)
+                    return state
             else:
-                failed += 1
-                _update_status(phone, "failed")
-                print("❌")
+                try:
+                    await page.wait_for_selector('[data-testid="chat-list"], #pane-side', timeout=30000)
+                    print("  ✅ Logged in (Session found)\n")
+                except:
+                    print("  ⚠️ Session detection slow, attempting to proceed...")
+                    await asyncio.sleep(5)
 
-            if i < len(leads) - 1:
-                for s in range(DELAY_SEC, 0, -1):
-                    print(f"  ⏱  {s}s...   ", end="\r", flush=True)
-                    await asyncio.sleep(1)
-                print(" " * 20, end="\r")
+            # ── Send loop ──────────────────────────────────
+            for i, lead in enumerate(leads):
+                phone   = lead.get("phone", "")
+                message = lead.get("message", "")
+                name    = lead.get("name", "")
 
-        await ctx.close()
+                print(f"  [{i+1:02d}/{len(leads)}] {name[:30]:<30} {phone}", end="  ", flush=True)
+
+                attachment = lead.get("attachment")
+                ok = await _send(page, phone, message, attachment)
+
+                if ok:
+                    sent += 1
+                    _update_status(phone, "sent")
+                    print("✅")
+                else:
+                    failed += 1
+                    _update_status(phone, "failed")
+                    print("❌")
+
+                if i < len(leads) - 1:
+                    for s in range(DELAY_SEC, 0, -1):
+                        print(f"  ⏱  {s}s...   ", end="\r", flush=True)
+                        await asyncio.sleep(1)
+                    print(" " * 20, end="\r")
+        finally:
+            await ctx.close()
 
     state["sent_count"]   = sent
     state["failed_count"] = failed
