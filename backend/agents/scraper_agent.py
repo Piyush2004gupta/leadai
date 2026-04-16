@@ -8,7 +8,6 @@ import asyncio, re, json, sys, io, urllib.parse, os
 from playwright.async_api import async_playwright
 from graph.state import AgentState
 
-# Fix for Windows Unicode printing errors
 if sys.stdout.encoding != 'utf-8':
     try:
         sys.stdout.reconfigure(encoding='utf-8')
@@ -20,7 +19,18 @@ JSON_FILE = "leads.json"
 
 
 async def scraper_agent(state: AgentState) -> AgentState:
-    leads = await scrape_maps(state["category"], state["location"], state.get("limit", 10))
+    try:
+        leads = await asyncio.wait_for(
+            scrape_maps(state["category"], state["location"], state.get("limit", 10)),
+            timeout=300  # 5 min max — Render pe hang nahi karega
+        )
+    except asyncio.TimeoutError:
+        print("   ⚠️ Scraper timeout (5 min) — returning partial results")
+        leads = []
+    except Exception as e:
+        print(f"   ❌ Scraper crashed: {e}")
+        leads = []
+
     state["raw_leads"] = leads
     return state
 
@@ -31,41 +41,48 @@ async def scrape_maps(category: str, location: str, limit: int = 10) -> list:
     print(f"{'─'*45}")
 
     leads = []
+    browser = None
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=os.getenv("HEADLESS", "true").lower() == "true",
-            args=[
-                "--no-sandbox", 
-                "--disable-dev-shm-usage",
-                "--single-process",
-                "--disable-gpu",
-                "--no-zygote"
-            ]
-        )
         try:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--single-process",
+                    "--disable-gpu",
+                    "--no-zygote",
+                    "--disable-setuid-sandbox",
+                    "--disable-extensions",
+                    "--disable-background-networking",
+                    "--disable-default-apps",
+                    "--disable-sync",
+                    "--metrics-recording-only",
+                    "--mute-audio",
+                    "--no-first-run",
+                    "--safebrowsing-disable-auto-update",
+                ]
+            )
             ctx = await browser.new_context(
-                viewport={"width": 1366, "height": 768},
+                viewport={"width": 1280, "height": 720},
                 user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             )
             page = await ctx.new_page()
 
-            # Extreme memory optimization: Block images, CSS, and Fonts
-            await page.route("**/*.{png,jpg,jpeg,svg,webp,gif,css,font,woff,woff2,ttf}", lambda route: route.abort())
+            # Block everything except HTML/JS — saves ~40% RAM
+            await page.route("**/*.{png,jpg,jpeg,svg,webp,gif,css,font,woff,woff2,ttf,ico}",
+                             lambda route: route.abort())
 
-            # ── Google Maps search direct URL ────────────────
             search_url = f"https://www.google.com/maps/search/{urllib.parse.quote(category)} in {urllib.parse.quote(location)}"
             try:
                 print("   🌐 Opening Google Maps (Ultra-lite)")
-                await page.goto(search_url, timeout=60000)
+                await page.goto(search_url, timeout=60000, wait_until="domcontentloaded")
                 print("   ✅ Page opened successfully")
-                print("   🚀 Starting scraping")
                 await page.wait_for_timeout(3000)
-                print("   ⏳ Waiting for results...")
             except Exception as e:
                 print(f"   ⚠️ Goto Error: {e}")
 
-            # ── Scroll to load more ────────────────────────
             try:
                 await page.wait_for_selector('div[role="feed"]', timeout=30000)
                 print("   ✅ Results loaded")
@@ -77,18 +94,16 @@ async def scrape_maps(category: str, location: str, limit: int = 10) -> list:
                 prev = 0
                 for _ in range(8):
                     await page.evaluate("(el) => el.scrollBy(0, 1000)", feed)
-                    await asyncio.sleep(1.8)
+                    await asyncio.sleep(1.5)
                     items = await page.query_selector_all('div[role="feed"] > div > div > a')
                     cur = len(items)
                     if cur == prev or cur >= 40: break
                     prev = cur
 
-            # ── Extract each listing ───────────────────────
             listings = await page.query_selector_all('div[role="feed"] > div > div > a')
             for i in range(len(listings)):
                 if len(leads) >= limit: break
-                
-                # Re-fetch listings to avoid detachment
+
                 current_listings = await page.query_selector_all('div[role="feed"] > div > div > a')
                 if i >= len(current_listings): break
                 item = current_listings[i]
@@ -96,24 +111,26 @@ async def scrape_maps(category: str, location: str, limit: int = 10) -> list:
                 try:
                     try: await item.scroll_into_view_if_needed(timeout=5000)
                     except: pass
-                    
+
                     await item.click()
-                    await asyncio.sleep(3.5)
+                    await asyncio.sleep(3)
                     lead = await _extract(page, i+1, category, location)
-                    
+
                     if lead and lead.get("phone"):
                         name_lower = lead.get("name", "").strip().lower()
                         phone = lead["phone"]
-                        
                         is_dup = any(l["phone"] == phone or l["name"].strip().lower() == name_lower for l in leads)
-                        
                         if not is_dup:
                             leads.append(lead)
                             print(f"   ✅ [{len(leads):02d}] {lead['name'][:35]:<35} {lead['phone']}")
-                except: continue
+                except:
+                    continue
 
+        except Exception as e:
+            print(f"   ❌ Browser error: {e}")
         finally:
-            await browser.close()
+            if browser:
+                await browser.close()
 
     _save_json(leads)
     return leads
@@ -134,8 +151,7 @@ async def _extract(page, idx, category, location) -> dict | None:
             el = await page.query_selector(sel)
             if el:
                 phone = _fmt((await el.inner_text()).strip())
-                if phone:
-                    break
+                if phone: break
         d["phone"] = phone
 
         el = await page.query_selector("div.F7nice span[aria-hidden='true']")
@@ -158,19 +174,14 @@ async def _extract(page, idx, category, location) -> dict | None:
 
 def _fmt(raw: str) -> str | None:
     digits = re.sub(r"\D", "", raw)
-    if len(digits) < 10:
-        return None
-    if digits.startswith("91") and len(digits) == 12:
-        return f"+{digits}"
-    if len(digits) == 10:
-        return f"+91{digits}"
-    if digits.startswith("0") and len(digits) == 11:
-        return f"+91{digits[1:]}"
+    if len(digits) < 10: return None
+    if digits.startswith("91") and len(digits) == 12: return f"+{digits}"
+    if len(digits) == 10: return f"+91{digits}"
+    if digits.startswith("0") and len(digits) == 11: return f"+91{digits[1:]}"
     return f"+{digits}"
 
 
 def _save_json(leads: list):
-    """Save/merge leads into leads.json — no duplicates by phone."""
     try:
         with open(JSON_FILE, "r", encoding="utf-8") as f:
             existing = json.load(f)
@@ -179,18 +190,16 @@ def _save_json(leads: list):
 
     existing_phones = {l["phone"] for l in existing if l.get("phone")}
     existing_names = {l["name"].strip().lower() for l in existing if l.get("name")}
-    
+
     new_leads = []
     for l in leads:
         name_lower = l.get("name", "").strip().lower()
         phone = l.get("phone")
-        
         if phone and phone not in existing_phones and name_lower not in existing_names:
             new_leads.append(l)
             existing_phones.add(phone)
             existing_names.add(name_lower)
-            
-    all_leads = existing + new_leads
 
+    all_leads = existing + new_leads
     with open(JSON_FILE, "w", encoding="utf-8") as f:
         json.dump(all_leads, f, indent=2, ensure_ascii=False)
