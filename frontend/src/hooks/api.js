@@ -2,7 +2,7 @@ import axios from 'axios'
 
 // Localhost pe test karte waqt ye URL use hoga
 // Production (Railway) pe aap yahan apna Railway URL dalenge
-const API_BASE = import.meta.env.VITE_API_URL || 'https://lead-generator-agent-1.onrender.com'
+const API_BASE = import.meta.env.VITE_API_URL || 'https://leadai-backend-cczl.onrender.com'
 
 const client = axios.create({
   baseURL: API_BASE

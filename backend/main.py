@@ -1,7 +1,6 @@
 """
 BACKEND — FastAPI Server
 Frontend se requests aati hain, agent pipeline trigger hoti hai.
-Railway pe deploy hoga.
 """
 
 import json
@@ -13,7 +12,6 @@ from datetime import datetime
 import shutil
 from ollama_utils import generate_text
 
-# Windows encoding issue fix for emojis
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
 
@@ -23,24 +21,20 @@ from pydantic import BaseModel
 
 app = FastAPI(title="LeadAgent API")
 
-# ── CORS — Vercel frontend allow karo ─────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # Production mein apna Vercel URL daalo
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ── In-memory job store (Railway restart pe reset hoga) ───────
-# Production mein Redis use karo
 JOBS: dict[str, dict] = {}
 LEADS_FILE = "leads.json"
 
 
-# ── Models ────────────────────────────────────────────────────
 class RunRequest(BaseModel):
-    category: str   # "Gym"
-    location: str   # "Ludhiana"
+    category: str
+    location: str
     limit:    int | None = 5
     base_message: str | None = None
     prompt:   str | None = None
@@ -48,36 +42,30 @@ class RunRequest(BaseModel):
     script:   str | None = None
 
 
-# ── Endpoints ─────────────────────────────────────────────────
-
 @app.get("/")
 def root():
     return {"status": "LeadAgent API running"}
-
 
 @app.head("/")
 def head():
     return {}
 
-
 @app.get("/health")
 def health():
     return {"ok": True}
 
-
 @app.post("/llm-test")
 async def llm_test(prompt: str = Form(...)):
-    """Simple endpoint to test Ollama."""
     try:
         response = generate_text(prompt)
-        return {"response": response, "result": response} # Support both keys
+        return {"response": response, "result": response}
     except Exception as e:
         return {"error": str(e), "result": "Error: " + str(e)}
 
 
 @app.post("/run")
 async def start_agent(
-    bg: BackgroundTasks, 
+    bg: BackgroundTasks,
     category: str = Form(...),
     location: str = Form(...),
     limit: int = Form(...),
@@ -85,7 +73,7 @@ async def start_agent(
     file: UploadFile = File(None)
 ):
     job_id = str(uuid.uuid4())
-    
+
     file_path = None
     if file:
         os.makedirs("uploads", exist_ok=True)
@@ -111,13 +99,10 @@ async def start_agent(
 
 @app.post("/run-agent")
 async def start_agent_json(bg: BackgroundTasks, req: RunRequest):
-    """JSON based run endpoint."""
-    # Mapping for snippet compatibility
     category = req.category
     location = req.location or req.city
     base_msg = req.base_message or req.script
-    
-    # If a direct prompt is provided, treat it as a quick LLM task
+
     if req.prompt:
         try:
             response = generate_text(req.prompt)
@@ -130,7 +115,7 @@ async def start_agent_json(bg: BackgroundTasks, req: RunRequest):
 
     job_id = str(uuid.uuid4())
     limit = req.limit if req.limit else 5
-    
+
     JOBS[job_id] = {
         "id":        job_id,
         "category":  category,
@@ -148,7 +133,6 @@ async def start_agent_json(bg: BackgroundTasks, req: RunRequest):
 
 @app.get("/job/{job_id}")
 def get_job(job_id: str):
-    """Job status aur logs fetch karo."""
     job = JOBS.get(job_id)
     if not job:
         return {"error": "Job not found"}
@@ -157,7 +141,6 @@ def get_job(job_id: str):
 
 @app.get("/leads")
 def get_leads():
-    """leads.json ka data return karo."""
     try:
         with open(LEADS_FILE) as f:
             leads = json.load(f)
@@ -168,7 +151,6 @@ def get_leads():
 
 @app.get("/stats")
 def get_stats():
-    """Dashboard stats."""
     try:
         with open(LEADS_FILE) as f:
             leads = json.load(f)
@@ -198,28 +180,29 @@ async def send_messages(bg: BackgroundTasks):
 async def run_outreach_pipeline(job_id: str):
     def log(msg: str, progress: int = None):
         JOBS[job_id]["logs"].append({"time": datetime.now().strftime("%H:%M:%S"), "msg": msg})
-        if progress is not None: JOBS[job_id]["progress"] = progress
+        if progress is not None:
+            JOBS[job_id]["progress"] = progress
         print(f"[{job_id}] {msg}")
 
     try:
         from agents.outreach_agent import outreach_agent
         with open(LEADS_FILE, "r", encoding="utf-8") as f:
             leads = json.load(f)
-        
+
         pending = [l for l in leads if l.get("status") == "pending" and l.get("message")]
-        
+
         if not pending:
             log("❌ No pending leads with messages found.", 100)
             JOBS[job_id]["status"] = "done"
             return
 
         log(f"📲 Starting outreach for {len(pending)} leads...", 10)
-        log("🌐 Opening WhatsApp Web... (QR Scan kar lena agar login nahi ho)", 20)
-        
+        log("🌐 Opening WhatsApp Web...", 20)
+
         state = {"leads_with_msg": pending}
         result = await outreach_agent(state)
-        
-        log(f"✅ Outreach complete! Sent: {result.get('sent_count', 0)}, Failed: {result.get('failed_count', 0)}", 100)
+
+        log(f"✅ Done! Sent: {result.get('sent_count', 0)}, Failed: {result.get('failed_count', 0)}", 100)
         JOBS[job_id]["status"] = "done"
     except Exception as e:
         log(f"❌ Error: {str(e)}", 100)
@@ -228,7 +211,6 @@ async def run_outreach_pipeline(job_id: str):
 
 @app.delete("/leads/reset")
 def reset_leads():
-    """leads.json clear karo."""
     with open(LEADS_FILE, "w", encoding="utf-8") as f:
         json.dump([], f)
     return {"ok": True}
@@ -237,9 +219,6 @@ def reset_leads():
 # ── Background pipeline ───────────────────────────────────────
 
 async def run_pipeline(job_id: str, category: str, location: str, limit: int, base_message: str = None, attachment: str = None):
-    """
-    Actual agent pipeline — background mein chalta hai.
-    """
 
     def log(msg: str, progress: int = None):
         JOBS[job_id]["logs"].append({
@@ -251,11 +230,9 @@ async def run_pipeline(job_id: str, category: str, location: str, limit: int, ba
         print(f"[{job_id}] {msg}")
 
     try:
-        # ── Step 1: Scraping ──────────────────────────────
         JOBS[job_id]["status"] = "scraping"
         log(f"🕷 Scraping Google Maps: '{category}' in '{location}'", 10)
 
-        # Import agents
         import sys
         from pathlib import Path
         backend_dir = str(Path(__file__).parent.absolute())
@@ -267,41 +244,48 @@ async def run_pipeline(job_id: str, category: str, location: str, limit: int, ba
         from agents.writer_agent   import write_messages
         from agents.outreach_agent import outreach_agent
 
-        raw_leads = await scrape_maps(category, location, limit)
+        # ── KEY FIX: Progress callback jo har lead pe update kare ──
+        found_so_far = [0]
+
+        def on_lead_found(lead_name: str, lead_phone: str):
+            found_so_far[0] += 1
+            # 10% to 28% ke beech smooth progress during scraping
+            scrape_progress = min(10 + (found_so_far[0] * 2), 28)
+            log(f"✅ Lead {found_so_far[0]}: {lead_name[:30]} — {lead_phone}", scrape_progress)
+
+        raw_leads = await scrape_maps(category, location, limit, progress_cb=on_lead_found)
         log(f"✅ {len(raw_leads)} leads scraped", 30)
 
-        # Scraped leads ko save karke attachment path add karo
         for l in raw_leads:
             l["attachment"] = attachment
 
-        # ── Step 2: Analyze ───────────────────────────────
+        # ── Analyze ───────────────────────────────────────────────
         JOBS[job_id]["status"] = "analyzing"
-        log(f"🔍 Analyzing {len(raw_leads)} leads with TinyLlama...", 40)
+        log(f"🔍 Analyzing {len(raw_leads)} leads...", 40)
         analyzed = await asyncio.to_thread(analyze_leads, raw_leads)
         log(f"✅ {len(analyzed)} valid leads", 60)
 
-        # ── Step 3: Write messages ────────────────────────
+        # ── Write messages ────────────────────────────────────────
         JOBS[job_id]["status"] = "writing"
-        log(f"✍️  Writing messages...", 70)
+        log(f"✍️  Writing personalized messages...", 70)
         leads_with_msg = await asyncio.to_thread(write_messages, analyzed, category, location, base_message)
         log(f"✅ Messages ready", 85)
 
-        # ── Step 4: Save to JSON ──────────────────────────
+        # ── Save ──────────────────────────────────────────────────
         _merge_json(leads_with_msg)
         log(f"💾 Saved to leads.json", 90)
 
-        # ── Step 5: Generate WA sender script ─────────────
         script_path = _generate_wa_script(leads_with_msg)
         log(f"📲 WhatsApp script ready: {script_path}", 95)
 
-        JOBS[job_id]["status"]  = "done"
+        JOBS[job_id]["status"]   = "done"
         JOBS[job_id]["progress"] = 100
         JOBS[job_id]["stats"] = {
             "scraped":  len(raw_leads),
             "analyzed": len(analyzed),
             "messages": len(leads_with_msg),
         }
-        log(f"🎉 Done! {len(leads_with_msg)} leads ready to send.")
+        log(f"🎉 Done! {len(leads_with_msg)} leads ready.")
 
     except Exception as e:
         JOBS[job_id]["status"] = "error"
@@ -316,20 +300,16 @@ def _merge_json(leads: list):
     except Exception:
         existing = []
 
-    # Map existing leads for faster lookup
     existing_phones = {l["phone"] for l in existing if l.get("phone")}
-    existing_names = {l["name"].strip().lower() for l in existing if l.get("name")}
+    existing_names  = {l["name"].strip().lower() for l in existing if l.get("name")}
 
     new = []
     for l in leads:
         name_lower = l.get("name", "").strip().lower()
         phone = l.get("phone")
-        
-        # skip if no phone or if phone/name already exists
         if not phone: continue
         if phone in existing_phones: continue
         if name_lower in existing_names: continue
-        
         new.append(l)
         existing_phones.add(phone)
         existing_names.add(name_lower)
@@ -339,10 +319,6 @@ def _merge_json(leads: list):
 
 
 def _generate_wa_script(leads: list) -> str:
-    """
-    Local machine pe run karne ke liye Python script generate karo.
-    User download karega aur apne PC pe chalayega.
-    """
     lines = [
         "# WhatsApp Sender — apne PC pe run karo",
         "# pip install playwright && playwright install chromium",

@@ -14,7 +14,6 @@ if sys.stdout.encoding != 'utf-8':
     except AttributeError:
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
-
 JSON_FILE = "leads.json"
 
 
@@ -22,20 +21,20 @@ async def scraper_agent(state: AgentState) -> AgentState:
     try:
         leads = await asyncio.wait_for(
             scrape_maps(state["category"], state["location"], state.get("limit", 10)),
-            timeout=300  # 5 min max — Render pe hang nahi karega
+            timeout=300
         )
     except asyncio.TimeoutError:
-        print("   ⚠️ Scraper timeout (5 min) — returning partial results")
+        print("   ⚠️ Scraper timeout — returning partial results")
         leads = []
     except Exception as e:
         print(f"   ❌ Scraper crashed: {e}")
         leads = []
-
     state["raw_leads"] = leads
     return state
 
 
-async def scrape_maps(category: str, location: str, limit: int = 10) -> list:
+# ── progress_cb parameter add kiya — main.py se real-time update milega ──
+async def scrape_maps(category: str, location: str, limit: int = 10, progress_cb=None) -> list:
     print(f"\n{'─'*45}")
     print(f"🕷  SCRAPING: '{category}' in '{location}' (Limit: {limit})")
     print(f"{'─'*45}")
@@ -70,11 +69,16 @@ async def scrape_maps(category: str, location: str, limit: int = 10) -> list:
             )
             page = await ctx.new_page()
 
-            # Block everything except HTML/JS — saves ~40% RAM
-            await page.route("**/*.{png,jpg,jpeg,svg,webp,gif,css,font,woff,woff2,ttf,ico}",
-                             lambda route: route.abort())
+            # Block images/fonts — saves ~40% RAM
+            await page.route(
+                "**/*.{png,jpg,jpeg,svg,webp,gif,css,font,woff,woff2,ttf,ico}",
+                lambda route: route.abort()
+            )
 
-            search_url = f"https://www.google.com/maps/search/{urllib.parse.quote(category)} in {urllib.parse.quote(location)}"
+            search_url = (
+                f"https://www.google.com/maps/search/"
+                f"{urllib.parse.quote(category)} in {urllib.parse.quote(location)}"
+            )
             try:
                 print("   🌐 Opening Google Maps (Ultra-lite)")
                 await page.goto(search_url, timeout=60000, wait_until="domcontentloaded")
@@ -97,32 +101,45 @@ async def scrape_maps(category: str, location: str, limit: int = 10) -> list:
                     await asyncio.sleep(1.5)
                     items = await page.query_selector_all('div[role="feed"] > div > div > a')
                     cur = len(items)
-                    if cur == prev or cur >= 40: break
+                    if cur == prev or cur >= 40:
+                        break
                     prev = cur
 
             listings = await page.query_selector_all('div[role="feed"] > div > div > a')
             for i in range(len(listings)):
-                if len(leads) >= limit: break
+                if len(leads) >= limit:
+                    break
 
                 current_listings = await page.query_selector_all('div[role="feed"] > div > div > a')
-                if i >= len(current_listings): break
+                if i >= len(current_listings):
+                    break
                 item = current_listings[i]
 
                 try:
-                    try: await item.scroll_into_view_if_needed(timeout=5000)
-                    except: pass
+                    try:
+                        await item.scroll_into_view_if_needed(timeout=5000)
+                    except:
+                        pass
 
                     await item.click()
                     await asyncio.sleep(3)
-                    lead = await _extract(page, i+1, category, location)
+                    lead = await _extract(page, i + 1, category, location)
 
                     if lead and lead.get("phone"):
                         name_lower = lead.get("name", "").strip().lower()
                         phone = lead["phone"]
-                        is_dup = any(l["phone"] == phone or l["name"].strip().lower() == name_lower for l in leads)
+                        is_dup = any(
+                            l["phone"] == phone or l["name"].strip().lower() == name_lower
+                            for l in leads
+                        )
                         if not is_dup:
                             leads.append(lead)
                             print(f"   ✅ [{len(leads):02d}] {lead['name'][:35]:<35} {lead['phone']}")
+
+                            # ── Real-time progress callback ──
+                            if progress_cb:
+                                progress_cb(lead["name"], lead["phone"])
+
                 except:
                     continue
 
@@ -151,7 +168,8 @@ async def _extract(page, idx, category, location) -> dict | None:
             el = await page.query_selector(sel)
             if el:
                 phone = _fmt((await el.inner_text()).strip())
-                if phone: break
+                if phone:
+                    break
         d["phone"] = phone
 
         el = await page.query_selector("div.F7nice span[aria-hidden='true']")
@@ -189,7 +207,7 @@ def _save_json(leads: list):
         existing = []
 
     existing_phones = {l["phone"] for l in existing if l.get("phone")}
-    existing_names = {l["name"].strip().lower() for l in existing if l.get("name")}
+    existing_names  = {l["name"].strip().lower() for l in existing if l.get("name")}
 
     new_leads = []
     for l in leads:
