@@ -10,7 +10,7 @@ import uuid
 import sys
 from datetime import datetime
 import shutil
-from ollama_utils import generate_text
+from gemini_utils import generate_text
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')

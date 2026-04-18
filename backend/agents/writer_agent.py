@@ -1,13 +1,13 @@
 """
 AGENT 3 — WRITER
-Fixed prompt template use karo — TinyLlama se message personalize karo.
+Fixed prompt template use karo — Gemini se message personalize karo.
 Base message: "I am Make best AI Integrated website for you"
 """
 
 import json, sys, io
 import requests
 from graph.state import AgentState
-from ollama_utils import generate_text
+from gemini_utils import generate_text
 
 # Fix for Windows Unicode printing errors
 if sys.stdout.encoding != 'utf-8':
@@ -18,7 +18,7 @@ if sys.stdout.encoding != 'utf-8':
 
 
 import os
-OLLAMA_MODEL = "tinyllama"
+GEMINI_MODEL = "gemini-1.5-flash"
 JSON_FILE    = "leads.json"
 
 # ── Fixed base message (as requested) ─────────────────────────
@@ -51,7 +51,7 @@ def write_messages(leads: list, category: str, location: str, base_message: str 
 def _write_message(lead: dict, base_msg: str = None) -> str:
     """
     If user provides a message, use it EXACTLY.
-    Otherwise, use TinyLlama for AI personalization.
+    Otherwise, use Gemini for AI personalization.
     """
     name     = lead.get("name", "your business")
     category = lead.get("category", "business")
@@ -70,7 +70,7 @@ def _write_message(lead: dict, base_msg: str = None) -> str:
     MUST include this core offer: "{target_msg}" """
 
     try:
-        msg = generate_text(prompt, model=OLLAMA_MODEL)
+        msg = generate_text(prompt, model_name=GEMINI_MODEL)
         if msg and target_msg.lower() in msg.lower():
             return msg.strip()
     except:
