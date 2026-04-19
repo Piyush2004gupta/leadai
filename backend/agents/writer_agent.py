@@ -7,7 +7,7 @@ Base message: "I am Make best AI Integrated website for you"
 import json, sys, io
 import requests
 from graph.state import AgentState
-from openai_utils import generate_text
+from ollama_utils import generate_text
 
 # Fix for Windows Unicode printing errors
 if sys.stdout.encoding != 'utf-8':
@@ -18,7 +18,7 @@ if sys.stdout.encoding != 'utf-8':
 
 
 import os
-OPENAI_MODEL = "gpt-4o-mini"
+OLLAMA_MODEL = "tinyllama"
 JSON_FILE    = "leads.json"
 
 # ── Fixed base message (as requested) ─────────────────────────
@@ -70,7 +70,7 @@ def _write_message(lead: dict, base_msg: str = None) -> str:
     MUST include this core offer: "{target_msg}" """
 
     try:
-        msg = generate_text(prompt, model_name=OPENAI_MODEL)
+        msg = generate_text(prompt, model_name=OLLAMA_MODEL)
         if msg and target_msg.lower() in msg.lower():
             return msg.strip()
     except:

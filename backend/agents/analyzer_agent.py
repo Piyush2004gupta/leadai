@@ -7,7 +7,7 @@ valid hai ya nahi, pitch type decide karo.
 import json, sys, io
 import requests
 from graph.state import AgentState
-from openai_utils import generate_text
+from ollama_utils import generate_text
 
 # Fix for Windows Unicode printing errors
 if sys.stdout.encoding != 'utf-8':

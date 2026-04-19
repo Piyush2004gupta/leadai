@@ -10,7 +10,6 @@ import uuid
 import sys
 from datetime import datetime
 import shutil
-from openai_utils import generate_text
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
@@ -54,14 +53,6 @@ def head():
 def health():
     return {"ok": True}
 
-@app.post("/llm-test")
-async def llm_test(prompt: str = Form(...)):
-    try:
-        response = generate_text(prompt)
-        return {"response": response, "result": response}
-    except Exception as e:
-        return {"error": str(e), "result": "Error: " + str(e)}
-
 
 @app.post("/run")
 async def start_agent(
@@ -102,13 +93,6 @@ async def start_agent_json(bg: BackgroundTasks, req: RunRequest):
     category = req.category
     location = req.location or req.city
     base_msg = req.base_message or req.script
-
-    if req.prompt:
-        try:
-            response = generate_text(req.prompt)
-            return {"status": "done", "result": response, "message": "Quick generation complete"}
-        except Exception as e:
-            return {"status": "error", "result": str(e), "message": "Quick generation failed"}
 
     if not category or not location:
         return {"error": "category and location (or city) are required"}
@@ -233,35 +217,24 @@ async def run_pipeline(job_id: str, category: str, location: str, limit: int, ba
         JOBS[job_id]["status"] = "scraping"
         log(f"🕷 Scraping Google Maps: '{category}' in '{location}'", 10)
 
-        import sys
-        from pathlib import Path
-        backend_dir = str(Path(__file__).parent.absolute())
-        if backend_dir not in sys.path:
-            sys.path.insert(0, backend_dir)
-
         from agents.scraper_agent  import scrape_maps
         from agents.analyzer_agent import analyze_leads
         from agents.writer_agent   import write_messages
-        from agents.outreach_agent import outreach_agent
 
         # ── KEY FIX: Progress callback jo har lead pe update kare ──
         found_so_far = [0]
 
         def on_lead_found(lead_name: str, lead_phone: str):
             if lead_name == "SYSTEM_STATUS":
-                # Intermediate progress for map loading etc.
                 if "Opening" in lead_phone:
                     log(lead_phone, 12)
                 elif "loaded" in lead_phone:
                     log(lead_phone, 18)
-                elif "Extracting" in lead_phone:
-                    log(lead_phone, 22)
                 else:
                     log(lead_phone)
                 return
 
             found_so_far[0] += 1
-            # 10% to 28% ke beech smooth progress during scraping
             scrape_progress = min(18 + (found_so_far[0] * 2), 28)
             log(f"✅ Lead {found_so_far[0]}: {lead_name[:30]} — {lead_phone}", scrape_progress)
 
@@ -301,7 +274,7 @@ async def run_pipeline(job_id: str, category: str, location: str, limit: int, ba
 
     except Exception as e:
         JOBS[job_id]["status"] = "error"
-        JOBS[job_id]["logs"].append({"time": datetime.now().strftime("%H:%M:%S"), "msg": f"❌ Error: {e}"})
+        log(f"❌ Error: {e}", 100)
         print(f"[{job_id}] ERROR: {e}")
 
 
@@ -309,22 +282,11 @@ def _merge_json(leads: list):
     try:
         with open(LEADS_FILE, "r", encoding="utf-8") as f:
             existing = json.load(f)
-    except Exception:
+    except:
         existing = []
 
     existing_phones = {l["phone"] for l in existing if l.get("phone")}
-    existing_names  = {l["name"].strip().lower() for l in existing if l.get("name")}
-
-    new = []
-    for l in leads:
-        name_lower = l.get("name", "").strip().lower()
-        phone = l.get("phone")
-        if not phone: continue
-        if phone in existing_phones: continue
-        if name_lower in existing_names: continue
-        new.append(l)
-        existing_phones.add(phone)
-        existing_names.add(name_lower)
+    new = [l for l in leads if l.get("phone") not in existing_phones]
 
     with open(LEADS_FILE, "w", encoding="utf-8") as f:
         json.dump(existing + new, f, indent=2, ensure_ascii=False)
