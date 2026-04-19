@@ -5,7 +5,10 @@ import os
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-client = openai.OpenAI(api_key=OPENAI_API_KEY)
+if not OPENAI_API_KEY:
+    print("⚠️ WARNING: OPENAI_API_KEY is not set in environment!")
+
+client = openai.OpenAI(api_key=OPENAI_API_KEY or "missing")
 
 def generate_text(prompt, model_name="gpt-4o-mini"):
     """

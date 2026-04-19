@@ -80,16 +80,29 @@ async def scrape_maps(category: str, location: str, limit: int = 10, progress_cb
                 f"{urllib.parse.quote(category)} in {urllib.parse.quote(location)}"
             )
             try:
-                print("   🌐 Opening Google Maps (Ultra-lite)")
-                await page.goto(search_url, timeout=60000, wait_until="domcontentloaded")
+                print("   🌐 Opening Google Maps...")
+                if progress_cb:
+                    # Inform frontend we are loading maps
+                    progress_cb("SYSTEM_STATUS", "Opening Google Maps...")
+                
+                await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
                 print("   ✅ Page opened successfully")
+                
+                if progress_cb:
+                    progress_cb("SYSTEM_STATUS", "Google Maps loaded. Searching...")
+                
                 await page.wait_for_timeout(3000)
             except Exception as e:
-                print(f"   ⚠️ Goto Error: {e}")
+                print(f"   ❌ Maps load failed: {e}")
+                if progress_cb:
+                    progress_cb("SYSTEM_STATUS", f"Maps load failed: {str(e)[:50]}")
+                return [] # Return empty if we can't even load the page
 
             try:
                 await page.wait_for_selector('div[role="feed"]', timeout=30000)
                 print("   ✅ Results loaded")
+                if progress_cb:
+                    progress_cb("SYSTEM_STATUS", "Extracting leads from results...")
             except:
                 print("   ⚠️ Results feed not found, attempting to proceed...")
 

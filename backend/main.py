@@ -248,9 +248,21 @@ async def run_pipeline(job_id: str, category: str, location: str, limit: int, ba
         found_so_far = [0]
 
         def on_lead_found(lead_name: str, lead_phone: str):
+            if lead_name == "SYSTEM_STATUS":
+                # Intermediate progress for map loading etc.
+                if "Opening" in lead_phone:
+                    log(lead_phone, 12)
+                elif "loaded" in lead_phone:
+                    log(lead_phone, 18)
+                elif "Extracting" in lead_phone:
+                    log(lead_phone, 22)
+                else:
+                    log(lead_phone)
+                return
+
             found_so_far[0] += 1
             # 10% to 28% ke beech smooth progress during scraping
-            scrape_progress = min(10 + (found_so_far[0] * 2), 28)
+            scrape_progress = min(18 + (found_so_far[0] * 2), 28)
             log(f"✅ Lead {found_so_far[0]}: {lead_name[:30]} — {lead_phone}", scrape_progress)
 
         raw_leads = await scrape_maps(category, location, limit, progress_cb=on_lead_found)

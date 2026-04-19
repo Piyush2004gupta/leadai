@@ -1,9 +1,11 @@
-[phases.build]
+[phases.setup]
+nixPkgs = ["chromium", "chromium-driver"]
+
+[phases.install]
 cmds = [
   "pip install -r requirements.txt",
-  "playwright install chromium",
-  "playwright install-deps chromium"
+  "playwright install chromium --with-deps"
 ]
 
 [start]
-cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+cmd = "bash start.sh"
