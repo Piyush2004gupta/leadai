@@ -48,19 +48,12 @@ async def scrape_maps(category: str, location: str, limit: int = 10, progress_cb
                 headless=True,
                 args=[
                     "--no-sandbox",
+                    "--disable-setuid-sandbox",
                     "--disable-dev-shm-usage",
-                    "--single-process",
                     "--disable-gpu",
                     "--no-zygote",
-                    "--disable-setuid-sandbox",
-                    "--disable-extensions",
-                    "--disable-background-networking",
-                    "--disable-default-apps",
-                    "--disable-sync",
-                    "--metrics-recording-only",
-                    "--mute-audio",
-                    "--no-first-run",
-                    "--safebrowsing-disable-auto-update",
+                    "--single-process",
+                    "--disable-blink-features=AutomationControlled",
                 ]
             )
             ctx = await browser.new_context(
@@ -85,7 +78,7 @@ async def scrape_maps(category: str, location: str, limit: int = 10, progress_cb
                     # Inform frontend we are loading maps
                     progress_cb("SYSTEM_STATUS", "Opening Google Maps...")
                 
-                await page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
+                await page.goto(search_url, timeout=25000, wait_until="domcontentloaded")
                 print("   ✅ Page opened successfully")
                 
                 if progress_cb:
