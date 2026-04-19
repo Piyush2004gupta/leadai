@@ -25,6 +25,14 @@ Thumbs.db
 pip-log.txt
 npm-debug.log*
 
+# Environment Variables
+.env
+*.env
+backend/.env
+
+# Local Scripts
+backend/wa_sender.py
+
 # Workspace
 .gemini/
 .antigravity/

@@ -1,13 +1,13 @@
 """
-AGENT 2 — ANALYZER (Gemini 1.5 Flash)
-Har lead ko Gemini se analyze karo —
+AGENT 2 — ANALYZER (OpenAI gpt-4o-mini)
+Har lead ko OpenAI se analyze karo —
 valid hai ya nahi, pitch type decide karo.
 """
 
 import json, sys, io
 import requests
 from graph.state import AgentState
-from gemini_utils import generate_text
+from openai_utils import generate_text
 
 # Fix for Windows Unicode printing errors
 if sys.stdout.encoding != 'utf-8':
@@ -18,7 +18,7 @@ if sys.stdout.encoding != 'utf-8':
 
 
 import os
-GEMINI_MODEL = "gemini-1.5-flash"
+OPENAI_MODEL = "gpt-4o-mini"
 JSON_FILE   = "leads.json"
 
 
@@ -53,7 +53,7 @@ def analyze_leads(leads: list) -> list:
 
 
 def _analyze(lead: dict) -> dict:
-    """Gemini se lead analyze karo."""
+    """OpenAI se lead analyze karo."""
     prompt = f"""Analyze this business lead briefly.
 Business: {lead['name']}
 Has website: {lead['has_website']}
@@ -67,9 +67,9 @@ or "upgrade_website" if has_website is true.
 is_valid is true if business seems real and contactable."""
 
     try:
-        text = generate_text(prompt, model_name=GEMINI_MODEL)
+        text = generate_text(prompt, model_name=OPENAI_MODEL)
         if not text:
-            raise Exception("No response from Gemini")
+            raise Exception("No response from OpenAI")
 
         # JSON parse karo
         start = text.find("{")
@@ -78,9 +78,9 @@ is_valid is true if business seems real and contactable."""
             return json.loads(text[start:end])
 
     except Exception as e:
-        print(f"\n   Gemini error: {e} — using fallback")
+        print(f"\n   OpenAI error: {e} — using fallback")
 
-    # Fallback if Gemini fails
+    # Fallback if OpenAI fails
     return {
         "is_valid":   bool(lead.get("phone")),
         "pitch_type": "new_website" if not lead.get("has_website") else "upgrade_website"
